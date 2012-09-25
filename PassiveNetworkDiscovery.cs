@@ -43,7 +43,6 @@ namespace PassiveNetworkDiscovery
                         FileName = Argument.Substring(2);
                     }
                 }
-
             }
             catch (Exception)
             {
@@ -91,8 +90,15 @@ namespace PassiveNetworkDiscovery
                 SpecifiedDevice = int.Parse(Console.ReadLine());
             }
 
-
-            Device = Devices[SpecifiedDevice - 1];
+            try
+            {
+                Device = Devices[SpecifiedDevice - 1];
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("This device doesn't exist");
+                return;
+            }
 
             // Register our handler function to the 'packet arrival' event
             Device.OnPacketArrival += 
@@ -122,7 +128,7 @@ namespace PassiveNetworkDiscovery
             }
 
             Console.WriteLine();
-            Console.WriteLine("-- Listening on {0} {1}, hit 'q' to stop...",
+            Console.WriteLine("-- Listening on {0} {1}, hit 'Ctrl + C' to stop...",
                 Device.Name, Device.Description);
 
             // Start the capturing process
@@ -133,8 +139,7 @@ namespace PassiveNetworkDiscovery
             StatisticsTimer.Interval = StatisticsInterval;
             StatisticsTimer.Start();
 
-            // Let the program run until the user presses 'q'.
-            while (Console.ReadKey().KeyChar != 'q') { }
+            while (true) { Console.Read(); }
 
             // Stop the capturing process
             Device.StopCapture();
@@ -153,7 +158,7 @@ namespace PassiveNetworkDiscovery
         /// <param name="e"></param>
         private static void DisplayStatisticsEvent(object source, ElapsedEventArgs e)
         {
-            Console.WriteLine("Total received packets: {0}", Device.Statistics.ReceivedPackets);
+            Console.WriteLine("Received packets: {0}, Hosts: {1}", Device.Statistics.ReceivedPackets, IpList.Keys.Count);
         }
 
         /// <summary>
@@ -193,8 +198,8 @@ namespace PassiveNetworkDiscovery
 
                 if (!IpList.ContainsKey(IpAddress))
                 {
-                    Console.WriteLine("Discovered new device: {0}",IpAddress);
-                    IpList.Add(IpAddress,"");
+                    Console.WriteLine("Discovered new device: {0}", IpAddress);
+                    IpList[IpAddress] = "";
                 }
             }
             catch (Exception)
