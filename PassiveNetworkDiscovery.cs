@@ -8,6 +8,8 @@ using PacketDotNet;
 using System.Text;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
+using System.Timers;
 
 namespace PassiveNetworkDiscovery
 {
@@ -16,139 +18,228 @@ namespace PassiveNetworkDiscovery
     /// </summary>
     public class BasicCap
     {
-        public static Dictionary<string,string> IpList = new Dictionary<string,string>();
-        public static string FileName;
+        private static Dictionary<string,string> IpList = new Dictionary<string,string>();
+        private static string FileName = DateTime.Now.ToString("dd MM yyyy HH mm ss") + ".txt";
+        private static ICaptureDevice Device;
+        private static int StatisticsInterval = 1000 * 10;
 
-        public static void Main(string[] args)
+        public static void Main(string[] Args)
         {
-            FileName = DateTime.Now.ToString("dd MM yyyy HH mm ss") + ".txt";
+            int SpecifiedDevice = 0;
+            try
+            {
+                foreach (string Argument in Args)
+                {
+                    if (Argument.StartsWith("d"))
+                    {
+                        SpecifiedDevice = Int32.Parse(Argument.Substring(2));
+                    }
+                    if (Argument.StartsWith("s"))
+                    {
+                        StatisticsInterval = Int32.Parse(Argument.Substring(2));
+                    }
+                    if (Argument.StartsWith("o"))
+                    {
+                        FileName = Argument.Substring(2);
+                    }
+                }
 
-            // Print SharpPcap version
-            string ver = SharpPcap.Version.VersionString;
-            Console.WriteLine("SharpPcap {0}, Example3.BasicCap.cs", ver);
+            }
+            catch (Exception)
+            {
+
+            }
+            
+            // Print a welcome message
+            Console.WriteLine("Welcome to Passive Network Discovery");
+
+            // Print log filename note
+            Console.WriteLine();
+            Console.WriteLine("NOTE: This program will log to {0}", FileName);
+
 
             // Retrieve the device list
-            var devices = CaptureDeviceList.Instance;
+            var Devices = CaptureDeviceList.Instance;
 
             // If no devices were found print an error
-            if(devices.Count < 1)
+            if (Devices.Count < 1)
             {
                 Console.WriteLine("No devices were found on this machine");
                 return;
             }
 
-            Console.WriteLine();
-            Console.WriteLine("The following devices are available on this machine:");
-            Console.WriteLine("----------------------------------------------------");
-            Console.WriteLine();
-
-            int i = 0;
-
-            // Print out the devices
-            foreach(var dev in devices)
+            if (SpecifiedDevice == 0)
             {
-                /* Description */
-                Console.WriteLine("{0}) {1} {2}", i, dev.Name, dev.Description);
-                i++;
+                Console.WriteLine();
+                Console.WriteLine("The following devices are available on this machine:");
+                Console.WriteLine("----------------------------------------------------");
+                Console.WriteLine();
+
+                int i = 1;
+
+
+                // Print out the devices
+                foreach (var TempDevice in Devices)
+                {
+                    // Description
+                    Console.WriteLine("{0}) {1} {2}", i, TempDevice.Name, TempDevice.Description);
+                    i++;
+                }
+
+                Console.WriteLine();
+                Console.Write("-- Please choose a device to capture: ");
+                SpecifiedDevice = int.Parse(Console.ReadLine());
             }
 
-            Console.WriteLine();
-            Console.Write("-- Please choose a device to capture: ");
-            i = int.Parse( Console.ReadLine() );
 
-            var device = devices[i];
+            Device = Devices[SpecifiedDevice - 1];
 
             // Register our handler function to the 'packet arrival' event
-            device.OnPacketArrival += 
-                new PacketArrivalEventHandler( device_OnPacketArrival );
+            Device.OnPacketArrival += 
+                new PacketArrivalEventHandler(OnPacketArrival);
 
             // Open the device for capturing
-            int readTimeoutMilliseconds = 1000;
-            if (device is AirPcapDevice)
+            int ReadTimeoutMilliseconds = 1000;
+            if (Device is AirPcapDevice)
             {
                 // NOTE: AirPcap devices cannot disable local capture
-                var airPcap = device as AirPcapDevice;
-                airPcap.Open(SharpPcap.WinPcap.OpenFlags.DataTransferUdp, readTimeoutMilliseconds);
+                var AirPcap = Device as AirPcapDevice;
+                AirPcap.Open(SharpPcap.WinPcap.OpenFlags.DataTransferUdp, ReadTimeoutMilliseconds);
             }
-            else if(device is WinPcapDevice)
+            else if (Device is WinPcapDevice)
             {
-                var winPcap = device as WinPcapDevice;
-                winPcap.Open(SharpPcap.WinPcap.OpenFlags.DataTransferUdp | SharpPcap.WinPcap.OpenFlags.NoCaptureLocal, readTimeoutMilliseconds);
+                var WinPcap = Device as WinPcapDevice;
+                WinPcap.Open(SharpPcap.WinPcap.OpenFlags.DataTransferUdp | SharpPcap.WinPcap.OpenFlags.NoCaptureLocal, ReadTimeoutMilliseconds);
             }
-            else if (device is LibPcapLiveDevice)
+            else if (Device is LibPcapLiveDevice)
             {
-                var livePcapDevice = device as LibPcapLiveDevice;
-                livePcapDevice.Open(DeviceMode.Promiscuous, readTimeoutMilliseconds);
+                var LivePcapDevice = Device as LibPcapLiveDevice;
+                LivePcapDevice.Open(DeviceMode.Promiscuous, ReadTimeoutMilliseconds);
             }
             else
             {
-                throw new System.InvalidOperationException("unknown device type of " + device.GetType().ToString());
+                throw new System.InvalidOperationException("unknown device type of " + Device.GetType().ToString());
             }
 
             Console.WriteLine();
-            Console.WriteLine("-- Listening on {0} {1}, hit 'Enter' to stop...",
-                device.Name, device.Description);
+            Console.WriteLine("-- Listening on {0} {1}, hit 'q' to stop...",
+                Device.Name, Device.Description);
 
             // Start the capturing process
-            device.StartCapture();
+            Device.StartCapture();
 
-            // Wait for 'Enter' from the user.
-            Console.ReadLine();
+            Timer StatisticsTimer = new Timer();
+            StatisticsTimer.Elapsed += new ElapsedEventHandler(DisplayStatisticsEvent);
+            StatisticsTimer.Interval = StatisticsInterval;
+            StatisticsTimer.Start();
+
+            // Let the program run until the user presses 'q'.
+            while (Console.ReadKey().KeyChar != 'q') { }
 
             // Stop the capturing process
-            device.StopCapture();
+            Device.StopCapture();
 
+            Console.WriteLine();
             Console.WriteLine("-- Capture stopped.");
 
-            // Print out the device statistics
-            Console.WriteLine(device.Statistics.ToString());
-
             // Close the pcap device
-            device.Close();
+            Device.Close();
         }
 
         /// <summary>
-        /// Prints the time and length of each received packet
+        /// Displacs the statistics regularly
         /// </summary>
-        private static void device_OnPacketArrival(object sender, CaptureEventArgs e)
+        /// <param name="source"></param>
+        /// <param name="e"></param>
+        private static void DisplayStatisticsEvent(object source, ElapsedEventArgs e)
+        {
+            Console.WriteLine("Total received packets: {0}", Device.Statistics.ReceivedPackets);
+        }
+
+        /// <summary>
+        /// Checks if the IP address is on one of the private subnets
+        /// </summary>
+        /// <param name="IpAddress"></param>
+        /// <returns></returns>
+        private static bool IsOnPrivateSubnet (string IpAddress)
+        {
+            return Regex.IsMatch(IpAddress, @"(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)");
+        }
+
+        /// <summary>
+        /// Saves the log to file
+        /// </summary>
+        private static void SaveLog()
+        {
+            File.WriteAllLines(FileName,
+                IpList.Select(x => x.Key + ";" + x.Value).ToArray());
+        }
+
+        /// <summary>
+        /// Receives all packets and processes them
+        /// </summary>
+        private static void OnPacketArrival (object sender, CaptureEventArgs e)
         {
             try
             {
+                // Parse the packet
                 var raw_ip = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
                 var ip = IpPacket.GetEncapsulated(raw_ip);
                 string IpAddress = ip.SourceAddress.ToString();
+
+                // If source device isn't on one of the private subnets, ignore the packet
+                if (!IsOnPrivateSubnet(IpAddress)) 
+                    return;
+
                 if (!IpList.ContainsKey(IpAddress))
                 {
-                    Console.WriteLine(IpAddress);
+                    Console.WriteLine("Discovered new device: {0}",IpAddress);
                     IpList.Add(IpAddress,"");
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-
+                // If the packet isn't an IP packet, move on
             }
             try
             {
-                var raw_arp = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
-                var arp = ARPPacket.GetEncapsulated(raw_arp);
-                string SenderIpAddress = arp.SenderProtocolAddress.ToString();
-                string SenderMacAddress = BitConverter.ToString(arp.SenderHardwareAddress.GetAddressBytes()).ToLower().Replace("-", ":");
-                string TargetIpAddress = arp.TargetProtocolAddress.ToString();
-                string TargetMacAddress = BitConverter.ToString(arp.TargetHardwareAddress.GetAddressBytes()).ToLower().Replace("-",":");
+                // Parse the packet
+                var RawArpPacket = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+                var ArpPacket = ARPPacket.GetEncapsulated(RawArpPacket);
+
+                // Source information
+                string SourceIpAddress = ArpPacket.SenderProtocolAddress.ToString();
+                string SourceMacAddress = BitConverter.ToString(ArpPacket.SenderHardwareAddress.GetAddressBytes()).ToLower().Replace("-", ":");
+                
+                // If source device isn't on one of the private subnets, ignore the packet
+                if (!IsOnPrivateSubnet(SourceIpAddress))
+                    return;
+
+                // Target information
+                string TargetIpAddress = ArpPacket.TargetProtocolAddress.ToString();
+                string TargetMacAddress = BitConverter.ToString(ArpPacket.TargetHardwareAddress.GetAddressBytes()).ToLower().Replace("-", ":");
+
+                // If target device isn't on one of the private subnets, ignore the packet
+                if (!IsOnPrivateSubnet(TargetIpAddress))
+                    return;
+
+                // If source device isn't on one of the private subnets, ignore the packet
+                if (!IsOnPrivateSubnet(TargetIpAddress))
+                    return;
 
                 if (TargetMacAddress != "ff:ff:ff:ff:ff:ff")
                 {
-                    IpList[SenderIpAddress] = SenderMacAddress;
+                    IpList[SourceIpAddress] = SourceMacAddress;
                     IpList[TargetIpAddress] = TargetMacAddress;
-                    Console.WriteLine("New ARP discovery");
                 }
             }
-            catch (Exception ex2)
+            catch (Exception)
             {
-                //Console.WriteLine(ex2.Message);
+                // If the packet isn't an ARP packet, move on
             }
-            File.WriteAllLines(FileName,
-                IpList.Select(x => x.Key + ";" + x.Value).ToArray()); 
+
+            // Save the log file
+            SaveLog();
         }
     }
 }
