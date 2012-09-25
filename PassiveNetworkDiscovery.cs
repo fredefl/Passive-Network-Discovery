@@ -198,7 +198,7 @@ namespace PassiveNetworkDiscovery
 
                 if (!IpList.ContainsKey(IpAddress))
                 {
-                    Console.WriteLine("Discovered new device: {0}", IpAddress);
+                    Console.WriteLine("Discovered new host: {0}", IpAddress);
                     IpList[IpAddress] = "";
                 }
             }
