@@ -232,9 +232,20 @@ namespace PassiveNetworkDiscovery
                 if (!IsOnPrivateSubnet(TargetIpAddress))
                     return;
 
-                if (TargetMacAddress != "ff:ff:ff:ff:ff:ff")
+                if (SourceMacAddress != "ff:ff:ff:ff:ff:ff" && SourceMacAddress != "00:00:00:00:00:00")
                 {
+                    if (!IpList.ContainsKey(SourceIpAddress))
+                    {
+                        Console.WriteLine("Discovered new host: {0}", SourceIpAddress);
+                    }
                     IpList[SourceIpAddress] = SourceMacAddress;
+                }
+                if (TargetMacAddress != "ff:ff:ff:ff:ff:ff" && TargetMacAddress != "00:00:00:00:00:00")
+                {
+                    if (!IpList.ContainsKey(TargetIpAddress))
+                    {
+                        Console.WriteLine("Discovered new host: {0}", TargetIpAddress);
+                    }
                     IpList[TargetIpAddress] = TargetMacAddress;
                 }
             }
