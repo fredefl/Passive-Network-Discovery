@@ -10,7 +10,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Timers;
-using MySql.Data;
+using MySql;
+using MySql.Data.MySqlClient;
 
 namespace PassiveNetworkDiscovery
 {
@@ -23,6 +24,14 @@ namespace PassiveNetworkDiscovery
         private static string FileName = DateTime.Now.ToString("dd MM yyyy HH mm ss") + ".txt";
         private static ICaptureDevice Device;
         private static int StatisticsInterval = 1000 * 10;
+
+        private static MySqlConnection DatabaseConnection;
+        private static string DatabaseHost = "127.0.0.1";
+        private static string DatabasePort = "3306";
+        private static string DatabaseUsername = "root";
+        private static string DatabasePassword = "";
+        private static string DatabaseSchema = "";
+        private static string DatabaseTable = "";
 
         public static void Main(string[] Args)
         {
@@ -53,10 +62,50 @@ namespace PassiveNetworkDiscovery
             // Print a welcome message
             Console.WriteLine("Welcome to Passive Network Discovery");
 
-            // Print log filename note
+            LogFilePrompt:
             Console.WriteLine();
-            Console.WriteLine("NOTE: This program will log to {0}", FileName);
+            Console.Write("Do you want use MySQL? [Y/n] ");
+            ConsoleKeyInfo LogFileKey = Console.ReadKey();
+            Console.WriteLine();
+            Console.WriteLine();
 
+            if (LogFileKey.KeyChar == 'n' || LogFileKey.KeyChar == 'N') {
+                // Use files
+                // Print log filename note
+                Console.WriteLine();
+                Console.WriteLine("NOTE: This program will log to {0}", FileName);
+                
+            }
+            else if (LogFileKey.KeyChar == 'y' || LogFileKey.KeyChar == 'Y' || LogFileKey.Key == ConsoleKey.Enter)
+            {
+                // Use database
+                Console.WriteLine("-- Connecting to MySQL server...");
+                string DatabaseConnectionString = String.Format("server={0};port={1};user={2};password={3};database={4};", 
+                    DatabaseHost, DatabasePort, DatabaseUsername, DatabasePassword, DatabaseSchema);
+
+                DatabaseConnection = new MySqlConnection(DatabaseConnectionString);
+                try
+                {
+                    DatabaseConnection.Open();
+                    Console.WriteLine("-- Connected to MySQL server successfully!");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("-- Error while connecting to MySQL server!");
+                    Console.WriteLine(ex.ToString());
+                    Console.Read();
+                    return;
+                }
+
+
+            }
+            else
+            {
+                // Please try again
+                Console.WriteLine();
+                Console.WriteLine("Did not understand that, please try again!");
+                goto LogFilePrompt;
+            }
 
             // Retrieve the device list
             var Devices = CaptureDeviceList.Instance;
