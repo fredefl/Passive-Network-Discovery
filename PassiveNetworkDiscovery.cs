@@ -12,13 +12,11 @@ using System.Text.RegularExpressions;
 using System.Timers;
 using MySql;
 using MySql.Data.MySqlClient;
+using System.Diagnostics;
 
 namespace PassiveNetworkDiscovery
 {
-    /// <summary>
-    /// Basic capture example
-    /// </summary>
-    public class BasicCap
+    public class Discovery
     {
         private static Dictionary<string,string> IpList = new Dictionary<string,string>();
         private static string FileName = DateTime.Now.ToString("dd MM yyyy HH mm ss") + ".txt";
@@ -30,8 +28,12 @@ namespace PassiveNetworkDiscovery
         private static string DatabasePort = "3306";
         private static string DatabaseUsername = "root";
         private static string DatabasePassword = "";
-        private static string DatabaseSchema = "";
-        private static string DatabaseTable = "";
+        private static string DatabaseSchema = "passive_network_discovery";
+        private static string DatabaseTable = "hosts";
+
+        private const int DATABASE = 0;
+        private const int FILE = 1;
+        private static int LogType;
 
         public static void Main(string[] Args)
         {
@@ -65,20 +67,23 @@ namespace PassiveNetworkDiscovery
             LogFilePrompt:
             Console.WriteLine();
             Console.Write("Do you want use MySQL? [Y/n] ");
-            ConsoleKeyInfo LogFileKey = Console.ReadKey();
+            ConsoleKeyInfo LogTypeKey = Console.ReadKey();
             Console.WriteLine();
             Console.WriteLine();
 
-            if (LogFileKey.KeyChar == 'n' || LogFileKey.KeyChar == 'N') {
+            if (LogTypeKey.KeyChar == 'n' || LogTypeKey.KeyChar == 'N')
+            {
                 // Use files
+                LogType = FILE;
                 // Print log filename note
                 Console.WriteLine();
                 Console.WriteLine("NOTE: This program will log to {0}", FileName);
                 
             }
-            else if (LogFileKey.KeyChar == 'y' || LogFileKey.KeyChar == 'Y' || LogFileKey.Key == ConsoleKey.Enter)
+            else if (LogTypeKey.KeyChar == 'y' || LogTypeKey.KeyChar == 'Y' || LogTypeKey.Key == ConsoleKey.Enter)
             {
                 // Use database
+                LogType = DATABASE;
                 Console.WriteLine("-- Connecting to MySQL server...");
                 string DatabaseConnectionString = String.Format("server={0};port={1};user={2};password={3};database={4};", 
                     DatabaseHost, DatabasePort, DatabaseUsername, DatabasePassword, DatabaseSchema);
@@ -96,8 +101,6 @@ namespace PassiveNetworkDiscovery
                     Console.Read();
                     return;
                 }
-
-
             }
             else
             {
@@ -183,14 +186,22 @@ namespace PassiveNetworkDiscovery
 
             Console.CancelKeyPress += delegate
             {
-                // Stop the capturing process
-                Device.StopCapture();
+                try
+                {
+                    // Stop the capturing process
+                    Device.StopCapture();
 
-                Console.WriteLine();
-                Console.WriteLine("-- Capture stopped.");
+                    Console.WriteLine();
+                    Console.WriteLine("-- Capture stopped.");
 
-                // Close the pcap device
-                Device.Close();
+                    // Close the pcap device
+                    Device.Close();
+                    DatabaseConnection.Close();
+                }
+                catch (Exception ex)
+                {
+                    // We do not care - at all!
+                }
             };
 
             // Start the capturing process
@@ -233,6 +244,48 @@ namespace PassiveNetworkDiscovery
                 IpList.Select(x => x.Key + ";" + x.Value).ToArray());
         }
 
+        private static void CheckMacAndIp (string MacAddress, string IpAddress) {
+            if (MacAddress != "ff:ff:ff:ff:ff:ff" && MacAddress != "00:00:00:00:00:00")
+            {
+                // If the logging type is file
+                if (LogType == FILE) {
+                    // Check if the IP address is not already in the list
+                    if (!IpList.ContainsKey(IpAddress))
+                    {
+                        // Write it to the console if a new host has been discovered
+                        Console.WriteLine("Discovered new host: {0}", IpAddress);
+                    }
+                    // Add or update it to the list
+                    IpList[IpAddress] = MacAddress;
+                }
+                else if (LogType == DATABASE)
+                {
+                    // Create a query string that determines the number of hosts with that specific mac address
+                    string QueryString = String.Format("SELECT count(*) FROM {0} WHERE mac='{1}'", DatabaseTable, MacAddress);
+
+                    // Create the command
+                    MySqlCommand Command = new MySqlCommand(QueryString, DatabaseConnection);
+
+                    // If there is no such mac address in the table
+                    if (int.Parse(Command.ExecuteScalar() + "") == 0)
+                    {
+                        // Insert the host to the table
+                        QueryString = String.Format("INSERT INTO {0} (mac, ip) VALUES('{1}','{2}')", DatabaseTable, MacAddress, IpAddress);
+                        Command = new MySqlCommand(QueryString, DatabaseConnection);
+                        Command.ExecuteNonQuery();
+
+                        // And brag about the new host discovery!
+                        Console.WriteLine("Discovered new host: {0}", IpAddress);
+                    }
+                    else
+                    {
+                        // Otherwise we'll just update it
+                        QueryString = String.Format("UPDATE {0} SET ip='{1}' WHERE mac='{2}'", DatabaseTable, IpAddress, MacAddress);
+                    }
+                }            
+             }
+        }
+
         /// <summary>
         /// Receives all packets and processes them
         /// </summary>
@@ -249,7 +302,7 @@ namespace PassiveNetworkDiscovery
                 if (!IsOnPrivateSubnet(IpAddress)) 
                     return;
 
-                if (!IpList.ContainsKey(IpAddress))
+                if (LogType == FILE && !IpList.ContainsKey(IpAddress))
                 {
                     Console.WriteLine("Discovered new host: {0}", IpAddress);
                     IpList[IpAddress] = "";
@@ -285,21 +338,12 @@ namespace PassiveNetworkDiscovery
                 if (!IsOnPrivateSubnet(TargetIpAddress))
                     return;
 
-                if (SourceMacAddress != "ff:ff:ff:ff:ff:ff" && SourceMacAddress != "00:00:00:00:00:00")
+                try
                 {
-                    if (!IpList.ContainsKey(SourceIpAddress))
-                    {
-                        Console.WriteLine("Discovered new host: {0}", SourceIpAddress);
-                    }
-                    IpList[SourceIpAddress] = SourceMacAddress;
-                }
-                if (TargetMacAddress != "ff:ff:ff:ff:ff:ff" && TargetMacAddress != "00:00:00:00:00:00")
-                {
-                    if (!IpList.ContainsKey(TargetIpAddress))
-                    {
-                        Console.WriteLine("Discovered new host: {0}", TargetIpAddress);
-                    }
-                    IpList[TargetIpAddress] = TargetMacAddress;
+                    CheckMacAndIp(SourceMacAddress, SourceIpAddress);
+                    CheckMacAndIp(TargetMacAddress, TargetIpAddress);
+                } catch (Exception ex) {
+                    Console.WriteLine(ex.ToString());
                 }
             }
             catch (Exception)
@@ -308,7 +352,8 @@ namespace PassiveNetworkDiscovery
             }
 
             // Save the log file
-            SaveLog();
+            if (LogType == FILE) 
+                SaveLog();
         }
     }
 }
