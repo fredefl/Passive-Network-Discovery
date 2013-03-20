@@ -132,6 +132,18 @@ namespace PassiveNetworkDiscovery
             Console.WriteLine("-- Listening on {0} {1}, hit 'Ctrl + C' to stop...",
                 Device.Name, Device.Description);
 
+            Console.CancelKeyPress += delegate
+            {
+                // Stop the capturing process
+                Device.StopCapture();
+
+                Console.WriteLine();
+                Console.WriteLine("-- Capture stopped.");
+
+                // Close the pcap device
+                Device.Close();
+            };
+
             // Start the capturing process
             Device.StartCapture();
 
@@ -141,15 +153,6 @@ namespace PassiveNetworkDiscovery
             StatisticsTimer.Start();
 
             while (true) { Console.Read(); }
-
-            // Stop the capturing process
-            Device.StopCapture();
-
-            Console.WriteLine();
-            Console.WriteLine("-- Capture stopped.");
-
-            // Close the pcap device
-            Device.Close();
         }
 
         /// <summary>
