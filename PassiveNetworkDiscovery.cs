@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Timers;
+using MySql.Data;
 
 namespace PassiveNetworkDiscovery
 {
