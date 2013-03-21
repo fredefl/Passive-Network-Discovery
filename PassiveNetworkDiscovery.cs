@@ -24,6 +24,7 @@ namespace PassiveNetworkDiscovery
         private static int StatisticsInterval = 1000 * 10;
 
         private static MySqlConnection DatabaseConnection;
+        private static MySqlConnection SecondDatabaseConnection;
         private static string DatabaseHost = "127.0.0.1";
         private static string DatabasePort = "3306";
         private static string DatabaseUsername = "root";
@@ -89,9 +90,11 @@ namespace PassiveNetworkDiscovery
                     DatabaseHost, DatabasePort, DatabaseUsername, DatabasePassword, DatabaseSchema);
 
                 DatabaseConnection = new MySqlConnection(DatabaseConnectionString);
+                SecondDatabaseConnection = new MySqlConnection(DatabaseConnectionString);
                 try
                 {
                     DatabaseConnection.Open();
+                    SecondDatabaseConnection.Open();
                     Console.WriteLine("-- Connected to MySQL server successfully!");
                 }
                 catch (Exception ex)
@@ -222,7 +225,31 @@ namespace PassiveNetworkDiscovery
         /// <param name="e"></param>
         private static void DisplayStatisticsEvent(object source, ElapsedEventArgs e)
         {
-            Console.WriteLine("Received packets: {0}, Hosts: {1}", Device.Statistics.ReceivedPackets, IpList.Keys.Count);
+            int HostCount = -1;
+            if (LogType == FILE)
+            {
+                HostCount = IpList.Keys.Count;
+            }
+            else if (LogType == DATABASE)
+            {
+                try
+                {
+                    // Create the query string
+                    string QueryString = String.Format("SELECT count(*) FROM {0}", DatabaseTable);
+
+                    // Create the command
+                    MySqlCommand Command = new MySqlCommand(QueryString, DatabaseConnection);
+
+                    // Get the number of hosts
+                    HostCount = int.Parse(Command.ExecuteScalar() + "");
+                }
+                catch (MySqlException ex)
+                {
+
+                }
+            }
+            
+            Console.WriteLine("Received packets: {0}, Hosts: {1}", Device.Statistics.ReceivedPackets, HostCount);
         }
 
         /// <summary>
@@ -244,8 +271,8 @@ namespace PassiveNetworkDiscovery
                 IpList.Select(x => x.Key + ";" + x.Value).ToArray());
         }
 
-        private static void CheckMacAndIp (string MacAddress, string IpAddress) {
-            if (MacAddress != "ff:ff:ff:ff:ff:ff" && MacAddress != "00:00:00:00:00:00")
+        private static void CheckMacAndIp (string MacAddress, string IpAddress, string Method) {
+            if (MacAddress != "ff:ff:ff:ff:ff:ff" && MacAddress != "00:00:00:00:00:00" && IsOnPrivateSubnet(IpAddress))
             {
                 // If the logging type is file
                 if (LogType == FILE) {
@@ -261,26 +288,26 @@ namespace PassiveNetworkDiscovery
                 else if (LogType == DATABASE)
                 {
                     // Create a query string that determines the number of hosts with that specific mac address
-                    string QueryString = String.Format("SELECT count(*) FROM {0} WHERE mac='{1}'", DatabaseTable, MacAddress);
+                    string QueryString = String.Format("SELECT count(*) FROM {0} WHERE ip='{1}'", DatabaseTable, IpAddress);
 
                     // Create the command
-                    MySqlCommand Command = new MySqlCommand(QueryString, DatabaseConnection);
+                    MySqlCommand Command = new MySqlCommand(QueryString, SecondDatabaseConnection);
 
                     // If there is no such mac address in the table
                     if (int.Parse(Command.ExecuteScalar() + "") == 0)
                     {
                         // Insert the host to the table
-                        QueryString = String.Format("INSERT INTO {0} (mac, ip) VALUES('{1}','{2}')", DatabaseTable, MacAddress, IpAddress);
+                        QueryString = String.Format("INSERT INTO {0} (ip, mac) VALUES('{1}','{2}')", DatabaseTable, IpAddress, MacAddress);
                         Command = new MySqlCommand(QueryString, DatabaseConnection);
                         Command.ExecuteNonQuery();
 
                         // And brag about the new host discovery!
-                        Console.WriteLine("Discovered new host: {0}", IpAddress);
+                        Console.WriteLine("Discovered new host {0}: {1}\t{2}",Method, IpAddress, MacAddress);
                     }
                     else
                     {
                         // Otherwise we'll just update it
-                        QueryString = String.Format("UPDATE {0} SET ip='{1}' WHERE mac='{2}'", DatabaseTable, IpAddress, MacAddress);
+                        QueryString = String.Format("UPDATE {0} SET mac='{1}' WHERE ip='{2}'", DatabaseTable, MacAddress, IpAddress);
                     }
                 }            
              }
@@ -294,19 +321,31 @@ namespace PassiveNetworkDiscovery
             try
             {
                 // Parse the packet
-                var raw_ip = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
-                var ip = IpPacket.GetEncapsulated(raw_ip);
-                string IpAddress = ip.SourceAddress.ToString();
+                var RawIp = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+                var Ip = IpPacket.GetEncapsulated(RawIp);
 
-                // If source device isn't on one of the private subnets, ignore the packet
-                if (!IsOnPrivateSubnet(IpAddress)) 
-                    return;
+                var RawEthernet = Packet.ParsePacket(e.Packet.LinkLayerType, e.Packet.Data);
+                var Ethernet = EthernetPacket.GetEncapsulated(RawEthernet);
+                string SourceIpAddress = Ip.SourceAddress.ToString();
+                string SourceMacAddress = BitConverter.ToString(Ethernet.SourceHwAddress.GetAddressBytes()).ToLower().Replace("-", ":");
+                string TargetMacAddress = BitConverter.ToString(Ethernet.DestinationHwAddress.GetAddressBytes()).ToLower().Replace("-", ":");
+                string TargetIpAddress = Ip.DestinationAddress.ToString();
 
-                if (LogType == FILE && !IpList.ContainsKey(IpAddress))
+                try
+                {
+                    CheckMacAndIp(SourceMacAddress, SourceIpAddress, "Eth");
+                    CheckMacAndIp(TargetMacAddress, TargetIpAddress, "Eth");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                }
+
+                /*if (LogType == FILE && !IpList.ContainsKey(IpAddress))
                 {
                     Console.WriteLine("Discovered new host: {0}", IpAddress);
                     IpList[IpAddress] = "";
-                }
+                }*/
             }
             catch (Exception)
             {
@@ -321,27 +360,15 @@ namespace PassiveNetworkDiscovery
                 // Source information
                 string SourceIpAddress = ArpPacket.SenderProtocolAddress.ToString();
                 string SourceMacAddress = BitConverter.ToString(ArpPacket.SenderHardwareAddress.GetAddressBytes()).ToLower().Replace("-", ":");
-                
-                // If source device isn't on one of the private subnets, ignore the packet
-                if (!IsOnPrivateSubnet(SourceIpAddress))
-                    return;
 
                 // Target information
                 string TargetIpAddress = ArpPacket.TargetProtocolAddress.ToString();
                 string TargetMacAddress = BitConverter.ToString(ArpPacket.TargetHardwareAddress.GetAddressBytes()).ToLower().Replace("-", ":");
 
-                // If target device isn't on one of the private subnets, ignore the packet
-                if (!IsOnPrivateSubnet(TargetIpAddress))
-                    return;
-
-                // If source device isn't on one of the private subnets, ignore the packet
-                if (!IsOnPrivateSubnet(TargetIpAddress))
-                    return;
-
                 try
                 {
-                    CheckMacAndIp(SourceMacAddress, SourceIpAddress);
-                    CheckMacAndIp(TargetMacAddress, TargetIpAddress);
+                    CheckMacAndIp(SourceMacAddress, SourceIpAddress, "ARP");
+                    CheckMacAndIp(TargetMacAddress, TargetIpAddress, "ARP");
                 } catch (Exception ex) {
                     Console.WriteLine(ex.ToString());
                 }
