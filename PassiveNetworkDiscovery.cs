@@ -22,6 +22,7 @@ namespace PassiveNetworkDiscovery
         private static string FileName = DateTime.Now.ToString("dd MM yyyy HH mm ss") + ".txt";
         private static ICaptureDevice Device;
         private static int StatisticsInterval = 1000 * 10;
+        private static long LastPacketCount = 0;
 
         private static MySqlConnection DatabaseConnection;
         private static MySqlConnection SecondDatabaseConnection;
@@ -226,6 +227,9 @@ namespace PassiveNetworkDiscovery
         private static void DisplayStatisticsEvent(object source, ElapsedEventArgs e)
         {
             int HostCount = -1;
+            long PacketCount = Device.Statistics.ReceivedPackets;
+            long PacketsPerSecond = (PacketCount - LastPacketCount) / (StatisticsInterval / 1000);
+
             if (LogType == FILE)
             {
                 HostCount = IpList.Keys.Count;
@@ -238,7 +242,7 @@ namespace PassiveNetworkDiscovery
                     string QueryString = String.Format("SELECT count(*) FROM {0}", DatabaseTable);
 
                     // Create the command
-                    MySqlCommand Command = new MySqlCommand(QueryString, DatabaseConnection);
+                    MySqlCommand Command = new MySqlCommand(QueryString, SecondDatabaseConnection);
 
                     // Get the number of hosts
                     HostCount = int.Parse(Command.ExecuteScalar() + "");
@@ -249,7 +253,9 @@ namespace PassiveNetworkDiscovery
                 }
             }
             
-            Console.WriteLine("Received packets: {0}, Hosts: {1}", Device.Statistics.ReceivedPackets, HostCount);
+            Console.WriteLine("Received packets: {0}, Packets/second: {1}, Hosts: {2}", PacketCount, PacketsPerSecond, HostCount);
+
+            LastPacketCount = PacketCount;
         }
 
         /// <summary>
@@ -301,19 +307,19 @@ namespace PassiveNetworkDiscovery
                     // If there is no such mac address in the table
                     if (int.Parse(Command.ExecuteScalar() + "") == 0)
                     {
-                        // Insert the host to the table
-                        QueryString = String.Format("INSERT INTO {0} (ip, mac) VALUES('{1}','{2}')", DatabaseTable, IpAddress, MacAddress);
-                        Command = new MySqlCommand(QueryString, DatabaseConnection);
-                        Command.ExecuteNonQuery();
-
-                        // And brag about the new host discovery!
+                        // Brag about the new host discovery!
                         WriteDiscoveredMessage(MacAddress, IpAddress, Method);
                     }
-                    else
-                    {
-                        // Otherwise we'll just update it
-                        QueryString = String.Format("UPDATE {0} SET mac='{1}' WHERE ip='{2}'", DatabaseTable, MacAddress, IpAddress);
-                    }
+
+                    // Remove the host from the table
+                    QueryString = String.Format("DELETE FROM {0} WHERE ip='{1}' OR mac='{2}'", DatabaseTable, IpAddress, MacAddress);
+                    Command = new MySqlCommand(QueryString, DatabaseConnection);
+                    Command.ExecuteNonQuery();
+
+                    // Insert the host to the table
+                    QueryString = String.Format("INSERT INTO {0} (ip, mac) VALUES('{1}','{2}')", DatabaseTable, IpAddress, MacAddress);
+                    Command = new MySqlCommand(QueryString, DatabaseConnection);
+                    Command.ExecuteNonQuery();
                 }            
              }
         }
