@@ -302,7 +302,7 @@ namespace PassiveNetworkDiscovery
                     string QueryString = String.Format("SELECT count(*) FROM {0} WHERE ip='{1}'", DatabaseTable, IpAddress);
 
                     // Create the command
-                    MySqlCommand Command = new MySqlCommand(QueryString, SecondDatabaseConnection);
+                    MySqlCommand Command = new MySqlCommand(QueryString, DatabaseConnection);
 
                     // If there is no such mac address in the table
                     if (int.Parse(Command.ExecuteScalar() + "") == 0)
