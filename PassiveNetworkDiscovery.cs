@@ -271,6 +271,11 @@ namespace PassiveNetworkDiscovery
                 IpList.Select(x => x.Key + ";" + x.Value).ToArray());
         }
 
+        private static void WriteDiscoveredMessage(string MacAddress, string IpAddress, string Method)
+        {
+            Console.WriteLine("Discovered new host {0}: {1}\t{2}", Method, IpAddress, MacAddress);
+        }
+
         private static void CheckMacAndIp (string MacAddress, string IpAddress, string Method) {
             if (MacAddress != "ff:ff:ff:ff:ff:ff" && MacAddress != "00:00:00:00:00:00" && IsOnPrivateSubnet(IpAddress))
             {
@@ -280,7 +285,7 @@ namespace PassiveNetworkDiscovery
                     if (!IpList.ContainsKey(IpAddress))
                     {
                         // Write it to the console if a new host has been discovered
-                        Console.WriteLine("Discovered new host: {0}", IpAddress);
+                        WriteDiscoveredMessage(MacAddress, IpAddress, Method);
                     }
                     // Add or update it to the list
                     IpList[IpAddress] = MacAddress;
@@ -302,7 +307,7 @@ namespace PassiveNetworkDiscovery
                         Command.ExecuteNonQuery();
 
                         // And brag about the new host discovery!
-                        Console.WriteLine("Discovered new host {0}: {1}\t{2}",Method, IpAddress, MacAddress);
+                        WriteDiscoveredMessage(MacAddress, IpAddress, Method);
                     }
                     else
                     {
@@ -340,12 +345,6 @@ namespace PassiveNetworkDiscovery
                 {
                     Console.WriteLine(ex.ToString());
                 }
-
-                /*if (LogType == FILE && !IpList.ContainsKey(IpAddress))
-                {
-                    Console.WriteLine("Discovered new host: {0}", IpAddress);
-                    IpList[IpAddress] = "";
-                }*/
             }
             catch (Exception)
             {
